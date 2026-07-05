@@ -28,6 +28,7 @@
         "repo": "AI-Accounting-App"
       }
     ],
+    "artifactName": "${name}-setup-${version}.${ext}",
     "win": {
       "target": [
         "nsis"
