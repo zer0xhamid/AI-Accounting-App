@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+out/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment & secrets
+.env
+.env.local
+*.key
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test results (local)
+test_results*.txt
+
+# Python test scripts (contain API keys)
+*.py
+
+# Electron
+*.blockmap

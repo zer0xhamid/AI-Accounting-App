@@ -1,0 +1,15 @@
+appId: com.aiaccounting.app
+productName: المحاسب الذكي
+win:
+  target: nsis
+  icon: resources/icon.ico
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  installerLanguages:
+    - ar
+directories:
+  output: release
+files:
+  - dist/**/*
+  - package.json

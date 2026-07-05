@@ -1,0 +1,57 @@
+===================================
+  دليل تحديث برنامج المحاسب الذكي
+===================================
+
+-- كل مره عايز تنزل تحديث جديد للبرنامج اعمل الخطوات دي --
+
+1. غير رقم الاصدار في ملف package.json
+   مثلا من "1.0.0" لـ "1.1.0"
+   افتح package.json وغير السطر:
+   "version": "1.1.0"
+
+2. ابني البرنامج (الامرين دول بالترتيب):
+   npx electron-vite build
+   npx electron-builder --win
+
+3. ارفع التغييرات على GitHub:
+   git add .
+   git commit -m "v1.1.0"
+   git tag v1.1.0
+   git push origin main --tags
+
+4. اعمل GitHub Release:
+   - روح على https://github.com/zer0xhamid/AI-Accounting-App/releases
+   - اضغط "Create new release"
+   - اختار الـ tag (مثلا v1.1.0)
+   - اكتب عنوان الاصدار ووصف التغييرات
+   - ارفع الملفات دي من مجلد dist:
+     * المحاسب الذكي Setup X.X.X.exe
+     * latest.yml
+     * المحاسب الذكي Setup X.X.X.exe.blockmap (لو موجود)
+   - اضغط "Publish release"
+
+5. خلاص! اي حد عنده البرنامج يروح:
+   الاعدادات > التحديثات > "البحث عن تحديثات"
+   هيلاقي التحديث الجديد ويقدر يحمله ويتنصب تلقائي
+
+===================================
+  ملاحظات مهمة
+===================================
+
+- لازم يكون عندك GitHub repo اسمه AI-Accounting-App على حساب zer0xhamid
+- لازم تعمل electron-vite build الاول قبل electron-builder
+- ترقيم الاصدارات: 1.0.0 > 1.0.1 (تعديل صغير) > 1.1.0 (ميزة جديدة) > 2.0.0 (تغيير كبير)
+- لو اول مره تعمل git push لازم تعمل الاول:
+  git init
+  git remote add origin https://github.com/zer0xhamid/AI-Accounting-App.git
+
+===================================
+  اوامر البناء السريعة
+===================================
+
+بناء كامل:
+  npx electron-vite build
+  npx electron-builder --win
+
+تشغيل للتجربة:
+  npx electron-vite dev
