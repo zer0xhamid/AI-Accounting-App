@@ -44,7 +44,7 @@ export default function SettingsPage() {
       const { status, info } = data as { status: string; info?: unknown }
       setUpdateStatus({ status: status as UpdateStatus['status'], info: info as UpdateStatus['info'] })
     })
-    return cleanup
+    return () => { cleanup }
   }, [])
 
   const handleSaveKey = async () => {

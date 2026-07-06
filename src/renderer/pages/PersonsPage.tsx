@@ -10,7 +10,7 @@ const personTypeLabel: Record<string, string> = {
   client: 'عميل',
   supplier: 'مورد',
   both: 'عميل ومورد',
-  contractor: 'مقاول',
+  contractor: 'ورشة/صنايعي',
 }
 
 const personTypeBadge: Record<string, { bg: string; color: string }> = {
@@ -105,6 +105,8 @@ export default function PersonsPage() {
   const contractors = persons.filter(p => p.type === 'contractor')
   const totalReceivables = persons.filter(p => p.balance > 0).reduce((s, p) => s + p.balance, 0)
   const totalPayables = persons.filter(p => p.balance < 0).reduce((s, p) => s + Math.abs(p.balance), 0)
+  const contractorsOweYou = contractors.filter(p => p.balance > 0).reduce((s, p) => s + p.balance, 0)
+  const youOweContractors = contractors.filter(p => p.balance < 0).reduce((s, p) => s + Math.abs(p.balance), 0)
 
   return (
     <div className="animate-fadeIn">
@@ -129,7 +131,7 @@ export default function PersonsPage() {
               <select className="select" value={addForm.type} onChange={(e) => setAddForm({ ...addForm, type: e.target.value })}>
                 <option value="client">عميل</option>
                 <option value="supplier">مورد</option>
-                <option value="contractor">مقاول</option>
+                <option value="contractor">ورشة/صنايعي</option>
                 <option value="both">عميل ومورد</option>
               </select>
             </div>
@@ -150,7 +152,7 @@ export default function PersonsPage() {
       )}
 
       {/* Summary Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 16 }}>
         <div className="glass-card" style={{ padding: 16 }}>
           <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>عدد العملاء</p>
           <p style={{ fontSize: 24, fontWeight: 700 }}>{clients.length}</p>
@@ -163,13 +165,23 @@ export default function PersonsPage() {
           <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>عدد الموردين</p>
           <p style={{ fontSize: 24, fontWeight: 700 }}>{suppliers.length}</p>
         </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
         <div className="glass-card" style={{ padding: 16 }}>
-          <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>المتبقي عليك</p>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>المتبقي عليك للموردين</p>
           <p style={{ fontSize: 24, fontWeight: 700, color: 'var(--danger)' }}>{totalPayables.toLocaleString()} ج.م</p>
         </div>
         <div className="glass-card" style={{ padding: 16 }}>
-          <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>عدد المقاولين</p>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>الورش والصنايعية</p>
           <p style={{ fontSize: 24, fontWeight: 700, color: 'var(--warning)' }}>{contractors.length}</p>
+        </div>
+        <div className="glass-card" style={{ padding: 16 }}>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>عليهم ليك</p>
+          <p style={{ fontSize: 24, fontWeight: 700, color: 'var(--success)' }}>{contractorsOweYou.toLocaleString()} ج.م</p>
+        </div>
+        <div className="glass-card" style={{ padding: 16 }}>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>ليهم عندك</p>
+          <p style={{ fontSize: 24, fontWeight: 700, color: 'var(--danger)' }}>{youOweContractors.toLocaleString()} ج.م</p>
         </div>
       </div>
 
@@ -179,7 +191,7 @@ export default function PersonsPage() {
           { key: 'all' as PersonTab, label: `الكل (${persons.length})`, icon: Users },
           { key: 'client' as PersonTab, label: `العملاء (${clients.length})`, icon: Users },
           { key: 'supplier' as PersonTab, label: `الموردين (${suppliers.length})`, icon: Truck },
-          { key: 'contractor' as PersonTab, label: `المقاولين (${contractors.length})`, icon: Wrench },
+          { key: 'contractor' as PersonTab, label: `الورش والصنايعية (${contractors.length})`, icon: Wrench },
         ]).map(t => (
           <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
             padding: '10px 20px', fontSize: 13, fontWeight: activeTab === t.key ? 700 : 500,
@@ -210,7 +222,7 @@ export default function PersonsPage() {
       {filteredPersons.length === 0 ? (
         <div className="glass-card">
           <div className="empty-state">
-            <p>لا يوجد {activeTab === 'contractor' ? 'مقاولين' : activeTab === 'supplier' ? 'موردين' : activeTab === 'client' ? 'عملاء' : 'أشخاص'} بعد</p>
+            <p>لا يوجد {activeTab === 'contractor' ? 'ورش أو صنايعية' : activeTab === 'supplier' ? 'موردين' : activeTab === 'client' ? 'عملاء' : 'أشخاص'} بعد</p>
             <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 8 }}>
               اضغط "إضافة شخص" لإضافة واحد يدوياً أو سيتم إضافتهم تلقائياً عند تسجيل العمليات
             </p>
@@ -241,7 +253,7 @@ export default function PersonsPage() {
                       <select className="select" style={{ padding: '6px 10px', fontSize: 13 }} value={editForm.type} onClick={(e) => e.stopPropagation()} onChange={(e) => setEditForm({ ...editForm, type: e.target.value })}>
                         <option value="client">عميل</option>
                         <option value="supplier">مورد</option>
-                        <option value="contractor">مقاول</option>
+                        <option value="contractor">ورشة/صنايعي</option>
                         <option value="both">عميل ومورد</option>
                       </select>
                     ) : (

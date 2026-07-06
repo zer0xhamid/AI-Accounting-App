@@ -15,7 +15,8 @@ export default function InventoryPage() {
   const [movements, setMovements] = useState<InventoryMovement[]>([])
   const [showAddForm, setShowAddForm] = useState(false)
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null)
-  const [newItem, setNewItem] = useState({ name: '', unit: 'قطعة', specs: '', category_id: '', min_quantity: 0, notes: '', price: 0 })
+  const [newItem, setNewItem] = useState({ name: '', unit: 'قطعة', specs: '', category_id: '', min_quantity: 0, notes: '' })
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
 
   const loadData = async () => {
     const all = await window.api.inventory.list() as InventoryItem[]
@@ -48,16 +49,32 @@ export default function InventoryPage() {
       min_quantity: newItem.min_quantity,
       notes: newItem.notes || null,
     })
-    if (newItem.price > 0) {
-      const all = await window.api.inventory.list() as InventoryItem[]
-      const created = all.find((i) => i.name === newItem.name.trim())
-      if (created) {
-        await window.api.inventory.update(created.id, { avg_cost: newItem.price })
-      }
-    }
     addToast('تم إضافة الصنف', 'success')
     setShowAddForm(false)
-    setNewItem({ name: '', unit: 'قطعة', specs: '', category_id: '', min_quantity: 0, notes: '', price: 0 })
+    setNewItem({ name: '', unit: 'قطعة', specs: '', category_id: '', min_quantity: 0, notes: '' })
+    loadData()
+  }
+
+  const toggleSelect = (id: number, e: React.MouseEvent | React.ChangeEvent) => {
+    e.stopPropagation()
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filtered.length) setSelectedIds(new Set())
+    else setSelectedIds(new Set(filtered.map((i) => i.id)))
+  }
+
+  const handleBulkDelete = async () => {
+    if (!confirm(`هل أنت متأكد من حذف ${selectedIds.size} صنف؟`)) return
+    await window.api.inventory.bulkDelete(Array.from(selectedIds))
+    addToast(`تم حذف ${selectedIds.size} صنف`, 'info')
+    setSelectedIds(new Set())
     loadData()
   }
 
@@ -80,7 +97,6 @@ export default function InventoryPage() {
       category_id: item.category_id ? String(item.category_id) : '',
       min_quantity: item.min_quantity,
       notes: item.notes || '',
-      price: item.avg_cost || 0,
     })
   }
 
@@ -94,16 +110,13 @@ export default function InventoryPage() {
       min_quantity: newItem.min_quantity,
       notes: newItem.notes || null,
     })
-    if (newItem.price > 0) {
-      await window.api.inventory.update(editingItem.id, { avg_cost: newItem.price })
-    }
     addToast('تم تعديل الصنف', 'success')
     setEditingItem(null)
-    setNewItem({ name: '', unit: 'قطعة', specs: '', category_id: '', min_quantity: 0, notes: '', price: 0 })
+    setNewItem({ name: '', unit: 'قطعة', specs: '', category_id: '', min_quantity: 0, notes: '' })
     loadData()
   }
 
-  const totalValue = items.reduce((sum, i) => sum + i.quantity * i.avg_cost, 0)
+  const totalQuantity = items.reduce((sum, i) => sum + i.quantity, 0)
   const lowStockCount = items.filter((i) => i.min_quantity > 0 && i.quantity <= i.min_quantity).length
 
   return (
@@ -111,7 +124,7 @@ export default function InventoryPage() {
       <div className="page-header">
         <h2 className="page-title">المخزن</h2>
         {activeTab === 'inventory' && (
-          <button className="btn btn-primary" onClick={() => { setEditingItem(null); setNewItem({ name: '', unit: 'قطعة', specs: '', category_id: '', min_quantity: 0, notes: '', price: 0 }); setShowAddForm(true) }}>
+          <button className="btn btn-primary" onClick={() => { setEditingItem(null); setNewItem({ name: '', unit: 'قطعة', specs: '', category_id: '', min_quantity: 0, notes: '' }); setShowAddForm(true) }}>
             <Plus size={16} /> إضافة صنف
           </button>
         )}
@@ -137,8 +150,8 @@ export default function InventoryPage() {
           <p style={{ fontSize: 24, fontWeight: 700 }}>{items.length}</p>
         </div>
         <div className="glass-card" style={{ padding: 16 }}>
-          <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>إجمالي قيمة المخزون</p>
-          <p style={{ fontSize: 24, fontWeight: 700 }}>{totalValue.toLocaleString()} ج.م</p>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>إجمالي الكميات</p>
+          <p style={{ fontSize: 24, fontWeight: 700 }}>{totalQuantity.toLocaleString()}</p>
         </div>
         <div className="glass-card" style={{ padding: 16 }}>
           <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>أصناف منخفضة</p>
@@ -185,17 +198,28 @@ export default function InventoryPage() {
           </div>
         </div>
       ) : (
+        <>
+        {selectedIds.size > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', marginBottom: 12, background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: 'var(--radius-sm)' }}>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>{selectedIds.size} محدد</span>
+            <button className="btn btn-danger" style={{ fontSize: 12, padding: '6px 14px' }} onClick={handleBulkDelete}>
+              <Trash2 size={14} /> حذف المحدد
+            </button>
+            <button className="btn btn-ghost" style={{ fontSize: 12, padding: '6px 14px' }} onClick={() => setSelectedIds(new Set())}>إلغاء التحديد</button>
+          </div>
+        )}
         <div className="table-container">
           <table>
             <thead>
               <tr>
+                <th style={{ width: 40 }}>
+                  <input type="checkbox" checked={filtered.length > 0 && selectedIds.size === filtered.length} onChange={toggleSelectAll} style={{ cursor: 'pointer', width: 16, height: 16 }} />
+                </th>
                 <th>الصنف</th>
                 <th>الفئة</th>
                 <th>الكمية</th>
                 <th>الوحدة</th>
                 <th>المواصفات</th>
-                <th>السعر</th>
-                <th>القيمة</th>
                 <th style={{ width: 90 }}></th>
               </tr>
             </thead>
@@ -208,6 +232,9 @@ export default function InventoryPage() {
                     style={{ cursor: 'pointer' }}
                     onClick={() => handleSelectItem(item)}
                   >
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" checked={selectedIds.has(item.id)} onChange={(e) => toggleSelect(item.id, e)} style={{ cursor: 'pointer', width: 16, height: 16 }} />
+                    </td>
                     <td style={{ fontWeight: 600 }}>
                       {isLow && <AlertTriangle size={14} style={{ color: 'var(--warning)', marginLeft: 6, verticalAlign: 'middle' }} />}
                       {item.name}
@@ -218,10 +245,6 @@ export default function InventoryPage() {
                     </td>
                     <td>{item.unit}</td>
                     <td style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{item.specs || '-'}</td>
-                    <td>{item.avg_cost > 0 ? item.avg_cost.toLocaleString() + ' ج.م' : '-'}</td>
-                    <td style={{ fontWeight: 600 }}>
-                      {(item.quantity * item.avg_cost).toLocaleString()} ج.م
-                    </td>
                     <td>
                       <div style={{ display: 'flex', gap: 4 }}>
                         <button style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 4 }} onClick={(e) => handleEditStart(item, e)} title="تعديل"><Pencil size={15} /></button>
@@ -234,6 +257,7 @@ export default function InventoryPage() {
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {/* Item Detail Modal */}
@@ -250,19 +274,9 @@ export default function InventoryPage() {
               </div>
             </div>
             <div style={{ padding: 24 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 24 }}>
-                <div>
-                  <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>الكمية الحالية</p>
-                  <p style={{ fontSize: 22, fontWeight: 700 }}>{selectedItem.quantity.toLocaleString()} {selectedItem.unit}</p>
-                </div>
-                <div>
-                  <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>السعر</p>
-                  <p style={{ fontSize: 22, fontWeight: 700 }}>{selectedItem.avg_cost.toLocaleString()} ج.م</p>
-                </div>
-                <div>
-                  <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>القيمة الإجمالية</p>
-                  <p style={{ fontSize: 22, fontWeight: 700 }}>{(selectedItem.quantity * selectedItem.avg_cost).toLocaleString()} ج.م</p>
-                </div>
+              <div style={{ marginBottom: 24 }}>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>الكمية الحالية</p>
+                <p style={{ fontSize: 22, fontWeight: 700 }}>{selectedItem.quantity.toLocaleString()} {selectedItem.unit}</p>
               </div>
 
               {selectedItem.specs && (
@@ -280,7 +294,7 @@ export default function InventoryPage() {
                         <th>التاريخ</th>
                         <th>النوع</th>
                         <th>الكمية</th>
-                        <th>سعر الوحدة</th>
+                        <th>ملاحظات</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -299,7 +313,7 @@ export default function InventoryPage() {
                             )}
                           </td>
                           <td style={{ fontWeight: 600 }}>{m.quantity.toLocaleString()}</td>
-                          <td>{m.unit_cost ? m.unit_cost.toLocaleString() : '-'}</td>
+                          <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{m.notes || '-'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -343,15 +357,9 @@ export default function InventoryPage() {
                   </select>
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div>
-                  <label style={formLabel}>السعر (ج.م)</label>
-                  <input className="input" type="number" value={newItem.price || ''} onChange={(e) => setNewItem({ ...newItem, price: parseFloat(e.target.value) || 0 })} placeholder="0" min="0" />
-                </div>
-                <div>
-                  <label style={formLabel}>الحد الأدنى للكمية</label>
-                  <input className="input" type="number" value={newItem.min_quantity || ''} onChange={(e) => setNewItem({ ...newItem, min_quantity: parseFloat(e.target.value) || 0 })} placeholder="0" min="0" />
-                </div>
+              <div>
+                <label style={formLabel}>الحد الأدنى للكمية</label>
+                <input className="input" type="number" value={newItem.min_quantity || ''} onChange={(e) => setNewItem({ ...newItem, min_quantity: parseFloat(e.target.value) || 0 })} placeholder="0" min="0" />
               </div>
               <div>
                 <label style={formLabel}>المواصفات (اختياري)</label>

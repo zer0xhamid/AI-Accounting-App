@@ -24,6 +24,7 @@ const typeLabels: Record<string, { label: string; className: string }> = {
   'مصروف': { label: 'مصروف', className: 'badge-expense' },
   'إيراد': { label: 'إيراد', className: 'badge-sell' },
   'إضافة_مخزن': { label: 'إضافة مخزن', className: 'badge-collection' },
+  'تعديل_رصيد': { label: 'تعديل رصيد', className: 'badge-payment' },
 }
 
 export default function AIInputPage() {
@@ -40,6 +41,7 @@ export default function AIInputPage() {
   const [originalText, setOriginalText] = useState('')
   const [isRecording, setIsRecording] = useState(false)
   const [recentTxns, setRecentTxns] = useState<Transaction[]>([])
+  const [capturedImage, setCapturedImage] = useState<string | null>(null)
 
   useEffect(() => {
     const load = async () => {
@@ -59,6 +61,7 @@ export default function AIInputPage() {
         success: boolean; data?: AIResult[]; error?: string
       }
       if (result.success && result.data?.length) {
+        setCapturedImage(null)
         setOriginalText(text)
         setAiResults(result.data)
       } else {
@@ -92,6 +95,7 @@ export default function AIInputPage() {
           success: boolean; data?: AIResult[]; error?: string
         }
         if (result.success && result.data?.length) {
+          setCapturedImage(base64)
           setOriginalText(`[صورة: ${file.name}]`)
           setAiResults(result.data)
         } else {
@@ -133,6 +137,7 @@ export default function AIInputPage() {
               success: boolean; data?: AIResult[]; error?: string
             }
             if (result.success && result.data?.length) {
+              setCapturedImage(null)
               setOriginalText('[تسجيل صوتي]')
               setAiResults(result.data)
             } else {
@@ -151,9 +156,9 @@ export default function AIInputPage() {
     }
   }
 
-  const handleCloseReview = () => { setAiResults(null); setOriginalText('') }
+  const handleCloseReview = () => { setAiResults(null); setOriginalText(''); setCapturedImage(null) }
   const handleAllSaved = () => {
-    setAiResults(null); setOriginalText(''); setInputText('')
+    setAiResults(null); setOriginalText(''); setInputText(''); setCapturedImage(null)
     addToast('تم حفظ كل العمليات بنجاح!', 'success')
   }
 
@@ -299,6 +304,7 @@ export default function AIInputPage() {
           originalText={originalText}
           onClose={handleCloseReview}
           onAllSaved={handleAllSaved}
+          imageData={capturedImage}
         />
       )}
     </div>

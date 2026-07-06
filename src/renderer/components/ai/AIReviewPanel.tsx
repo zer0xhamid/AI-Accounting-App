@@ -8,6 +8,7 @@ import { useAppStore } from '../../store/appStore'
 interface AIResult {
   type: string
   person: string | null
+  date?: string | null
   items: { name: string; quantity: number; unit: string; specs: string | null }[]
   total_amount: number
   paid_amount: number
@@ -22,9 +23,10 @@ interface Props {
   originalText: string
   onClose: () => void
   onAllSaved: () => void
+  imageData?: string | null
 }
 
-export default function AIReviewPanel({ results, originalText, onClose, onAllSaved }: Props) {
+export default function AIReviewPanel({ results, originalText, onClose, onAllSaved, imageData }: Props) {
   const addToast = useAppStore((s) => s.addToast)
   const [currentIndex, setCurrentIndex] = useState(0)
   const [savedSet, setSavedSet] = useState<Set<number>>(new Set())
@@ -74,7 +76,7 @@ export default function AIReviewPanel({ results, originalText, onClose, onAllSav
   const buildInitialData = (): Partial<FormData> => {
     const resolvedPerson = current.person ? resolvedPersonsRef.current[current.person] ?? null : null
     return {
-      date: new Date().toISOString().split('T')[0],
+      date: current.date || new Date().toISOString().split('T')[0],
       type: current.type,
       person: resolvedPerson,
       items: current.items.length > 0
@@ -111,7 +113,7 @@ export default function AIReviewPanel({ results, originalText, onClose, onAllSav
     const person = await resolvePerson(result.person, result.type)
 
     await window.api.transactions.create({
-      date: new Date().toISOString().split('T')[0],
+      date: result.date || new Date().toISOString().split('T')[0],
       type: result.type,
       person_id: person?.id ?? null,
       total_amount: result.total_amount,
@@ -288,6 +290,17 @@ export default function AIReviewPanel({ results, originalText, onClose, onAllSav
           <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>النص الأصلي:</span>
           <p style={{ margin: '4px 0 0', fontSize: 14 }}>{originalText}</p>
         </div>
+
+        {imageData && (
+          <div style={{ padding: '12px 24px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-glass)' }}>
+            <span style={{ color: 'var(--text-muted)', fontSize: 12, display: 'block', marginBottom: 8 }}>الصورة المرفقة:</span>
+            <img
+              src={imageData}
+              alt="صورة الفاتورة"
+              style={{ maxWidth: '100%', maxHeight: 300, borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', objectFit: 'contain' }}
+            />
+          </div>
+        )}
 
         {results.length > 1 && (
           <div style={styles.navigation}>

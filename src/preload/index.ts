@@ -8,6 +8,7 @@ const api = {
     create: (data: unknown) => ipcRenderer.invoke(IPC.TRANSACTIONS_CREATE, data),
     update: (id: number, data: unknown) => ipcRenderer.invoke(IPC.TRANSACTIONS_UPDATE, id, data),
     delete: (id: number) => ipcRenderer.invoke(IPC.TRANSACTIONS_DELETE, id),
+    bulkDelete: (ids: number[]) => ipcRenderer.invoke(IPC.TRANSACTIONS_BULK_DELETE, ids),
   },
   persons: {
     list: () => ipcRenderer.invoke(IPC.PERSONS_LIST),
@@ -24,6 +25,7 @@ const api = {
     create: (data: unknown) => ipcRenderer.invoke(IPC.INVENTORY_CREATE, data),
     update: (id: number, data: unknown) => ipcRenderer.invoke(IPC.INVENTORY_UPDATE, id, data),
     delete: (id: number) => ipcRenderer.invoke(IPC.INVENTORY_DELETE, id),
+    bulkDelete: (ids: number[]) => ipcRenderer.invoke(IPC.INVENTORY_BULK_DELETE, ids),
     categories: () => ipcRenderer.invoke(IPC.INVENTORY_CATEGORIES),
     addStock: (items: unknown) => ipcRenderer.invoke(IPC.INVENTORY_ADD_STOCK, items),
   },

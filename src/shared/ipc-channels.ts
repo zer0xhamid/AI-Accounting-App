@@ -15,6 +15,7 @@ export const IPC = {
   TRANSACTIONS_CREATE: 'transactions:create',
   TRANSACTIONS_UPDATE: 'transactions:update',
   TRANSACTIONS_DELETE: 'transactions:delete',
+  TRANSACTIONS_BULK_DELETE: 'transactions:bulk-delete',
 
   // Persons
   PERSONS_LIST: 'persons:list',
@@ -31,6 +32,7 @@ export const IPC = {
   INVENTORY_CREATE: 'inventory:create',
   INVENTORY_UPDATE: 'inventory:update',
   INVENTORY_DELETE: 'inventory:delete',
+  INVENTORY_BULK_DELETE: 'inventory:bulk-delete',
   INVENTORY_CATEGORIES: 'inventory:categories',
   INVENTORY_ADD_STOCK: 'inventory:add-stock',
 

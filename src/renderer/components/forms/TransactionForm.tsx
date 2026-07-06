@@ -43,6 +43,7 @@ const transactionTypes = [
   { value: 'مصروف', label: 'مصروف', color: 'var(--warning)' },
   { value: 'إيراد', label: 'إيراد', color: 'var(--success)' },
   { value: 'إضافة_مخزن', label: 'إضافة مخزن', color: 'var(--info)' },
+  { value: 'تعديل_رصيد', label: 'تعديل رصيد', color: 'var(--text-secondary)' },
 ]
 
 const paymentMethods = [
@@ -124,7 +125,8 @@ export default function TransactionForm({ initialData, onSave, onCancel, isLoadi
     const errs: Record<string, string> = {}
 
     if (!form.type) errs.type = 'اختر نوع العملية'
-    if (form.type !== 'إضافة_مخزن' && form.total_amount <= 0) errs.total_amount = 'أدخل المبلغ الإجمالي'
+    if (!['إضافة_مخزن', 'تعديل_رصيد'].includes(form.type) && form.total_amount <= 0) errs.total_amount = 'أدخل المبلغ الإجمالي'
+    if (form.type === 'تعديل_رصيد' && form.total_amount === 0) errs.total_amount = 'أدخل مبلغ التعديل'
     if (form.paid_amount < 0) errs.paid_amount = 'المبلغ المدفوع لا يمكن أن يكون سالب'
     if (form.paid_amount > form.total_amount) errs.paid_amount = 'المدفوع أكبر من الإجمالي'
 
@@ -149,6 +151,7 @@ export default function TransactionForm({ initialData, onSave, onCancel, isLoadi
 
   const showItems = ['شراء', 'بيع', 'مصروف', 'إضافة_مخزن'].includes(form.type)
   const isInventoryAdd = form.type === 'إضافة_مخزن'
+  const isBalanceAdjust = form.type === 'تعديل_رصيد'
 
   return (
     <div className="glass-card animate-fadeIn" style={{ maxWidth: 800 }}>
@@ -186,10 +189,10 @@ export default function TransactionForm({ initialData, onSave, onCancel, isLoadi
       </div>
 
       {/* Person */}
-      {!isInventoryAdd && (
+      {!isInventoryAdd && !isBalanceAdjust && (
       <div style={styles.section}>
         <label style={styles.label}>
-          {['شراء', 'دفعة'].includes(form.type) ? 'المورد' : ['بيع', 'تحصيل'].includes(form.type) ? 'العميل' : form.type === 'مصروف' ? 'المقاول (اختياري)' : 'الطرف (اختياري)'}
+          {['شراء', 'دفعة'].includes(form.type) ? 'المورد' : ['بيع', 'تحصيل'].includes(form.type) ? 'العميل' : form.type === 'مصروف' ? 'الورشة/الصنايعي (اختياري)' : 'الطرف (اختياري)'}
         </label>
         <PersonSelector
           selectedPerson={form.person}
@@ -351,6 +354,23 @@ export default function TransactionForm({ initialData, onSave, onCancel, isLoadi
       {/* Amounts */}
       {!isInventoryAdd && (
       <div style={styles.section}>
+        {isBalanceAdjust ? (
+          <div>
+            <label style={styles.label}>مبلغ التعديل (موجب = إضافة، سالب = خصم)</label>
+            <input
+              className="input"
+              type="number"
+              value={form.total_amount || ''}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value) || 0
+                updateField('total_amount', val)
+                updateField('paid_amount', val)
+              }}
+              placeholder="0"
+            />
+            {errors.total_amount && <p style={styles.error}>{errors.total_amount}</p>}
+          </div>
+        ) : (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
           <div>
             <label style={styles.label}>المبلغ الإجمالي</label>
@@ -386,11 +406,12 @@ export default function TransactionForm({ initialData, onSave, onCancel, isLoadi
             </div>
           </div>
         </div>
+        )}
       </div>
       )}
 
       {/* Payment Method */}
-      {!isInventoryAdd && (
+      {!isInventoryAdd && !isBalanceAdjust && (
       <div style={styles.section}>
         <label style={styles.label}>طريقة الدفع</label>
         <div style={{ display: 'flex', gap: 10 }}>
@@ -427,7 +448,7 @@ export default function TransactionForm({ initialData, onSave, onCancel, isLoadi
       <div style={styles.actions}>
         <button className="btn btn-primary" onClick={handleSubmit} disabled={isLoading}>
           <Save size={16} />
-          {isLoading ? 'جاري الحفظ...' : isInventoryAdd ? 'إضافة للمخزن' : 'حفظ العملية'}
+          {isLoading ? 'جاري الحفظ...' : isInventoryAdd ? 'إضافة للمخزن' : isBalanceAdjust ? 'تعديل الرصيد' : 'حفظ العملية'}
         </button>
         <button className="btn btn-ghost" onClick={onCancel}>
           <X size={16} />

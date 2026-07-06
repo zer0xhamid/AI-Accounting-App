@@ -81,6 +81,17 @@ function deductBomMaterials(
   }
 }
 
+function normalizeArabic(text: string): string {
+  return text
+    .replace(/[أإآا]/g, 'ا')
+    .replace(/[ةه]/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .replace(/ؤ/g, 'و')
+    .replace(/ئ/g, 'ي')
+    .replace(/[َُِّْٰ]/g, '')
+    .trim()
+}
+
 function smartDeductInventory(
   db: Database.Database,
   txnId: number | bigint,
@@ -99,17 +110,20 @@ function smartDeductInventory(
 
   const templateNames = [...new Set(allBom.map(b => b.id))].map(id => {
     const first = allBom.find(b => b.id === id)!
-    return { id, name: first.name }
+    return { id, name: first.name, normalized: normalizeArabic(first.name) }
   })
 
   for (let i = 0; i < soldItems.length; i++) {
     const soldItem = soldItems[i]
-    const itemName = soldItem.name
+    const itemNorm = normalizeArabic(soldItem.name)
 
     const match = templateNames.find(t =>
-      t.name === itemName ||
-      t.name.includes(itemName) ||
-      itemName.includes(t.name)
+      t.normalized === itemNorm ||
+      t.normalized.includes(itemNorm) ||
+      itemNorm.includes(t.normalized) ||
+      t.name === soldItem.name ||
+      t.name.includes(soldItem.name) ||
+      soldItem.name.includes(t.name)
     )
 
     if (match) {
@@ -155,8 +169,23 @@ async function aiDeductInventory(
 
   if (inventoryRows.length === 0) return false
 
-  const deductions = await gemini.calculateDeductions(soldItems, inventoryRows)
+  const bomTemplates = db.prepare('SELECT * FROM bom_templates').all() as { id: number; name: string }[]
+  const bomWithItems = bomTemplates.map(t => ({
+    id: t.id,
+    name: t.name,
+    items: db.prepare('SELECT material_name, material_unit, quantity FROM bom_template_items WHERE template_id = ?')
+      .all(t.id) as { material_name: string; material_unit: string; quantity: number }[],
+  }))
+
+  const deductions = await gemini.calculateDeductions(soldItems, inventoryRows, bomWithItems.length > 0 ? bomWithItems : undefined)
   if (deductions.length === 0) return false
+
+  const bomMatchId = deductions[0]?.bom_template_id
+  if (bomMatchId && bomTemplates.some(t => t.id === bomMatchId)) {
+    const totalQty = soldItems.reduce((s, i) => s + i.quantity, 0) || 1
+    deductBomMaterials(db, txnId, date, bomMatchId, totalQty)
+    return true
+  }
 
   const findItem = db.prepare('SELECT id, quantity, avg_cost FROM inventory_items WHERE name = ? AND unit = ?')
   const findItemLike = db.prepare('SELECT id, quantity, avg_cost, name, unit FROM inventory_items WHERE name LIKE ? AND unit = ?')
@@ -477,6 +506,35 @@ export function registerDatabaseHandlers(ipcMain: Electron.IpcMain, db: Database
     return true
   })
 
+  ipcMain.handle(IPC.TRANSACTIONS_BULK_DELETE, (_e, ids: number[]) => {
+    const bulkDelete = db.transaction(() => {
+      for (const id of ids) {
+        const t = db.prepare('SELECT * FROM transactions WHERE id = ?').get(id) as {
+          person_id: number | null; type: string; remaining_amount: number; total_amount: number
+        } | undefined
+        if (!t) continue
+
+        if (t.person_id) {
+          let reversal = 0
+          if (t.type === 'بيع') reversal = -t.remaining_amount
+          else if (t.type === 'شراء') reversal = t.remaining_amount
+          else if (t.type === 'تحصيل') reversal = t.total_amount
+          else if (t.type === 'دفعة') reversal = -t.total_amount
+
+          if (reversal !== 0) {
+            db.prepare("UPDATE persons SET balance = balance + ?, updated_at = datetime('now') WHERE id = ?")
+              .run(reversal, t.person_id)
+          }
+        }
+
+        reverseInventory(db, id)
+        db.prepare('DELETE FROM transactions WHERE id = ?').run(id)
+      }
+    })
+    bulkDelete()
+    return ids.length
+  })
+
   // Persons
   ipcMain.handle(IPC.PERSONS_LIST, () => {
     return db.prepare('SELECT * FROM persons ORDER BY name').all()
@@ -644,11 +702,22 @@ export function registerDatabaseHandlers(ipcMain: Electron.IpcMain, db: Database
     return true
   })
 
+  ipcMain.handle(IPC.INVENTORY_BULK_DELETE, (_e, ids: number[]) => {
+    const bulkDelete = db.transaction(() => {
+      for (const id of ids) {
+        db.prepare('DELETE FROM inventory_movements WHERE inventory_item_id = ?').run(id)
+        db.prepare('DELETE FROM inventory_items WHERE id = ?').run(id)
+      }
+    })
+    bulkDelete()
+    return ids.length
+  })
+
   // Reports
   ipcMain.handle(IPC.REPORTS_BALANCE_SHEET, () => {
     const cashFlow = db.prepare(`
       SELECT
-        COALESCE(SUM(CASE WHEN type IN ('بيع','تحصيل','إيراد') THEN paid_amount ELSE 0 END), 0) -
+        COALESCE(SUM(CASE WHEN type IN ('بيع','تحصيل','إيراد','تعديل_رصيد') THEN paid_amount ELSE 0 END), 0) -
         COALESCE(SUM(CASE WHEN type IN ('شراء','دفعة','مصروف') THEN paid_amount ELSE 0 END), 0) as cash
       FROM transactions
     `).get() as { cash: number }
@@ -779,7 +848,7 @@ export function registerDatabaseHandlers(ipcMain: Electron.IpcMain, db: Database
         COALESCE(SUM(CASE WHEN type = 'بيع' THEN total_amount ELSE 0 END), 0) as sales,
         COALESCE(SUM(CASE WHEN type = 'شراء' THEN total_amount ELSE 0 END), 0) as purchases,
         COALESCE(SUM(CASE WHEN type = 'مصروف' THEN total_amount ELSE 0 END), 0) as expenses,
-        COALESCE(SUM(CASE WHEN type IN ('بيع','تحصيل','إيراد') THEN paid_amount ELSE 0 END), 0) -
+        COALESCE(SUM(CASE WHEN type IN ('بيع','تحصيل','إيراد','تعديل_رصيد') THEN paid_amount ELSE 0 END), 0) -
         COALESCE(SUM(CASE WHEN type IN ('شراء','دفعة','مصروف') THEN paid_amount ELSE 0 END), 0) as cash
       FROM transactions
     `).get() as { sales: number; purchases: number; expenses: number; cash: number }
