@@ -31,6 +31,30 @@ export default function PersonsPage() {
   const [showAddForm, setShowAddForm] = useState(false)
   const [addForm, setAddForm] = useState({ name: '', type: 'client', phone: '', notes: '' })
   const [isAdding, setIsAdding] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+
+  const toggleSelect = (id: number, e: React.MouseEvent | React.ChangeEvent) => {
+    e.stopPropagation()
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredPersons.length) setSelectedIds(new Set())
+    else setSelectedIds(new Set(filteredPersons.map((p) => p.id)))
+  }
+
+  const handleBulkDelete = async () => {
+    if (!confirm(`هل أنت متأكد من حذف ${selectedIds.size} شخص وكل عملياتهم؟`)) return
+    await window.api.persons.bulkDelete(Array.from(selectedIds))
+    addToast(`تم حذف ${selectedIds.size} شخص`, 'info')
+    setSelectedIds(new Set())
+    loadData()
+  }
 
   const loadData = async () => {
     const all = await window.api.persons.list() as Person[]
@@ -229,10 +253,23 @@ export default function PersonsPage() {
           </div>
         </div>
       ) : (
+        <>
+        {selectedIds.size > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', marginBottom: 12, background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: 'var(--radius-sm)' }}>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>{selectedIds.size} محدد</span>
+            <button className="btn btn-danger" style={{ fontSize: 12, padding: '6px 14px' }} onClick={handleBulkDelete}>
+              <Trash2 size={14} /> حذف المحدد
+            </button>
+            <button className="btn btn-ghost" style={{ fontSize: 12, padding: '6px 14px' }} onClick={() => setSelectedIds(new Set())}>إلغاء التحديد</button>
+          </div>
+        )}
         <div className="table-container">
           <table>
             <thead>
               <tr>
+                <th style={{ width: 40 }}>
+                  <input type="checkbox" checked={filteredPersons.length > 0 && selectedIds.size === filteredPersons.length} onChange={toggleSelectAll} style={{ cursor: 'pointer', width: 16, height: 16 }} />
+                </th>
                 <th>الاسم</th>
                 <th>النوع</th>
                 <th>الرصيد</th>
@@ -243,6 +280,9 @@ export default function PersonsPage() {
             <tbody>
               {filteredPersons.map((p) => (
                 <tr key={p.id} style={{ cursor: editingId === p.id ? 'default' : 'pointer' }} onClick={() => editingId !== p.id && navigate(`/persons/${p.id}`)}>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <input type="checkbox" checked={selectedIds.has(p.id)} onChange={(e) => toggleSelect(p.id, e)} style={{ cursor: 'pointer', width: 16, height: 16 }} />
+                  </td>
                   <td style={{ fontWeight: 600 }}>
                     {editingId === p.id ? (
                       <input className="input" style={{ padding: '6px 10px', fontSize: 13 }} value={editForm.name} onClick={(e) => e.stopPropagation()} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
@@ -297,6 +337,7 @@ export default function PersonsPage() {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   )

@@ -23,6 +23,7 @@ export const IPC = {
   PERSONS_CREATE: 'persons:create',
   PERSONS_UPDATE: 'persons:update',
   PERSONS_DELETE: 'persons:delete',
+  PERSONS_BULK_DELETE: 'persons:bulk-delete',
   PERSONS_SEARCH: 'persons:search',
 
   // Inventory

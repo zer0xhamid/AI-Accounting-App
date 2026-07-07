@@ -11,6 +11,8 @@ const typeLabels: Record<string, { label: string; className: string }> = {
   'تحصيل': { label: 'تحصيل', className: 'badge-collection' },
   'مصروف': { label: 'مصروف', className: 'badge-expense' },
   'إيراد': { label: 'إيراد', className: 'badge-sell' },
+  'إضافة_مخزن': { label: 'إضافة مخزن', className: 'badge-collection' },
+  'تعديل_رصيد': { label: 'تعديل رصيد', className: 'badge-payment' },
 }
 
 export default function DashboardPage() {

@@ -16,6 +16,7 @@ const api = {
     create: (data: unknown) => ipcRenderer.invoke(IPC.PERSONS_CREATE, data),
     update: (id: number, data: unknown) => ipcRenderer.invoke(IPC.PERSONS_UPDATE, id, data),
     delete: (id: number) => ipcRenderer.invoke(IPC.PERSONS_DELETE, id),
+    bulkDelete: (ids: number[]) => ipcRenderer.invoke(IPC.PERSONS_BULK_DELETE, ids),
     search: (query: string) => ipcRenderer.invoke(IPC.PERSONS_SEARCH, query),
   },
   inventory: {

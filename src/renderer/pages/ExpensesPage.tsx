@@ -34,6 +34,30 @@ export default function ExpensesPage() {
   const [quickAmount, setQuickAmount] = useState('')
   const [quickCategory, setQuickCategory] = useState('نثريات')
   const [isSaving, setIsSaving] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+
+  const toggleSelect = (id: number, e: React.MouseEvent | React.ChangeEvent) => {
+    e.stopPropagation()
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === expenses.length) setSelectedIds(new Set())
+    else setSelectedIds(new Set(expenses.map((t) => t.id)))
+  }
+
+  const handleBulkDelete = async () => {
+    if (!confirm(`هل أنت متأكد من حذف ${selectedIds.size} مصروف؟`)) return
+    await window.api.transactions.bulkDelete(Array.from(selectedIds))
+    addToast(`تم حذف ${selectedIds.size} مصروف`, 'info')
+    setSelectedIds(new Set())
+    loadData()
+  }
 
   const loadData = async () => {
     const summaryData = await window.api.reports.expensesSummary(dateFrom || undefined, dateTo || undefined) as ExpenseSummary[]
@@ -169,10 +193,23 @@ export default function ExpensesPage() {
       {expenses.length === 0 ? (
         <div className="glass-card"><div className="empty-state"><p>لا توجد مصروفات</p></div></div>
       ) : (
+        <>
+        {selectedIds.size > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', marginBottom: 12, background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: 'var(--radius-sm)' }}>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>{selectedIds.size} محدد</span>
+            <button className="btn btn-danger" style={{ fontSize: 12, padding: '6px 14px' }} onClick={handleBulkDelete}>
+              <Trash2 size={14} /> حذف المحدد
+            </button>
+            <button className="btn btn-ghost" style={{ fontSize: 12, padding: '6px 14px' }} onClick={() => setSelectedIds(new Set())}>إلغاء التحديد</button>
+          </div>
+        )}
         <div className="table-container">
           <table>
             <thead>
               <tr>
+                <th style={{ width: 40 }}>
+                  <input type="checkbox" checked={expenses.length > 0 && selectedIds.size === expenses.length} onChange={toggleSelectAll} style={{ cursor: 'pointer', width: 16, height: 16 }} />
+                </th>
                 <th>التاريخ</th>
                 <th>التصنيف</th>
                 <th>البيان</th>
@@ -183,6 +220,9 @@ export default function ExpensesPage() {
             <tbody>
               {expenses.map((t) => (
                 <tr key={t.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/transactions/${t.id}`)}>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <input type="checkbox" checked={selectedIds.has(t.id)} onChange={(e) => toggleSelect(t.id, e)} style={{ cursor: 'pointer', width: 16, height: 16 }} />
+                  </td>
                   <td>{t.date}</td>
                   <td>
                     <span style={{ fontSize: 12, padding: '2px 10px', borderRadius: 8, background: (categoryColors[t.expense_category || ''] || categoryColors['أخرى']).bg, color: (categoryColors[t.expense_category || ''] || categoryColors['أخرى']).color }}>
@@ -201,6 +241,7 @@ export default function ExpensesPage() {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   )

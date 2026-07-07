@@ -568,6 +568,26 @@ export function registerDatabaseHandlers(ipcMain: Electron.IpcMain, db: Database
     return true
   })
 
+  ipcMain.handle(IPC.PERSONS_BULK_DELETE, (_e, ids: number[]) => {
+    const bulkDelete = db.transaction(() => {
+      for (const id of ids) {
+        const person = db.prepare('SELECT * FROM persons WHERE id = ?').get(id)
+        if (!person) continue
+
+        const txns = db.prepare('SELECT id FROM transactions WHERE person_id = ?').all(id) as { id: number }[]
+        for (const t of txns) {
+          reverseInventory(db, t.id)
+          db.prepare('DELETE FROM transaction_items WHERE transaction_id = ?').run(t.id)
+          db.prepare('DELETE FROM transactions WHERE id = ?').run(t.id)
+        }
+
+        db.prepare('DELETE FROM persons WHERE id = ?').run(id)
+      }
+    })
+    bulkDelete()
+    return ids.length
+  })
+
   ipcMain.handle(IPC.PERSONS_SEARCH, (_e, query: string) => {
     return db.prepare('SELECT * FROM persons WHERE name LIKE ? ORDER BY name LIMIT 20')
       .all(`%${query}%`)
