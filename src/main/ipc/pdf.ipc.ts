@@ -109,7 +109,6 @@ const BASE_CSS = `
   }
   .footer-sigs .sig { display: flex; align-items: center; gap: 6px; }
   .footer-sigs .dots-line { width: 120px; border-bottom: 1px dotted #1a237e; }
-  .watermark { text-align: center; font-size: 10px; color: #9fa8da; margin-top: 30px; }
 `
 
 function wrapHtml(title: string, dateStr: string, bodyHtml: string): string {
@@ -132,7 +131,6 @@ function wrapHtml(title: string, dateStr: string, bodyHtml: string): string {
     <div class="sig"><span>المهندس</span><div class="dots-line"></div></div>
     <div class="sig"><span>مسئول الشركة</span><div class="dots-line"></div></div>
   </div>
-  <p class="watermark">تم الإنشاء بواسطة المحاسب الذكي</p>
 </body>
 </html>`
 }
@@ -179,7 +177,7 @@ function buildPDFHtml(type: string, data: Record<string, unknown>): string {
     return wrapHtml('الميزانية العمومية', today, body)
 
   } else if (type === 'account') {
-    const d = data as { person: { name: string; balance: number }; rows: { date: string; type: string; description: string; debit: number; credit: number; runningBalance: number }[] }
+    const d = data as { person: { name: string; balance: number }; rows: { date: string; type: string; description: string; total_amount: number; paid_amount: number; remaining_amount: number; runningBalance: number }[] }
     const body = `
       <div class="info-row">
         <div style="display:flex;align-items:center">
@@ -187,19 +185,20 @@ function buildPDFHtml(type: string, data: Record<string, unknown>): string {
         </div>
       </div>
       <table>
-        <thead><tr><th>التاريخ</th><th>العملية</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead>
+        <thead><tr><th>التاريخ</th><th>العملية</th><th>البيان</th><th>الإجمالي</th><th>المدفوع</th><th>المتبقي</th><th>الرصيد</th></tr></thead>
         <tbody>
-          ${(d.rows || []).map((r: { date: string; type: string; description: string; debit: number; credit: number; runningBalance: number }) => `
+          ${(d.rows || []).map((r) => `
             <tr>
               <td>${r.date}</td><td>${r.type}</td><td>${r.description || '-'}</td>
-              <td>${r.debit > 0 ? r.debit.toLocaleString() : '-'}</td>
-              <td>${r.credit > 0 ? r.credit.toLocaleString() : '-'}</td>
-              <td style="font-weight:600">${Math.abs(r.runningBalance).toLocaleString()} ${r.runningBalance > 0 ? 'له' : r.runningBalance < 0 ? 'عليه' : ''}</td>
+              <td>${(r.total_amount || 0).toLocaleString()}</td>
+              <td>${(r.paid_amount || 0) > 0 ? r.paid_amount.toLocaleString() : '-'}</td>
+              <td>${(r.remaining_amount || 0) > 0 ? r.remaining_amount.toLocaleString() : '-'}</td>
+              <td style="font-weight:600">${Math.abs(r.runningBalance).toLocaleString()} ${r.runningBalance > 0 ? 'عليه' : r.runningBalance < 0 ? 'له' : ''}</td>
             </tr>
           `).join('')}
         </tbody>
       </table>
-      <div class="summary-big ${(d.person?.balance || 0) >= 0 ? 'green' : 'red'}">الرصيد: ${Math.abs(d.person?.balance || 0).toLocaleString()} ج.م ${(d.person?.balance || 0) > 0 ? 'له' : (d.person?.balance || 0) < 0 ? 'عليه' : ''}</div>
+      <div class="summary-big ${(d.person?.balance || 0) >= 0 ? 'green' : 'red'}">الرصيد: ${Math.abs(d.person?.balance || 0).toLocaleString()} ج.م ${(d.person?.balance || 0) > 0 ? 'عليه' : (d.person?.balance || 0) < 0 ? 'له' : ''}</div>
     `
     return wrapHtml('كشف حساب', today, body)
 

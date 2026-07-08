@@ -8,12 +8,12 @@ function trackInventory(
   txnId: number | bigint,
   date: string,
   type: string,
-  items: { name: string; quantity: number; unit: string; specs: string | null; unit_price: number | null; total_price: number | null }[]
+  items: { name: string; quantity: number; unit: string; specs: string | null; unit_price: number | null; total_price: number | null; category_id?: number }[]
 ) {
   if (!['شراء', 'بيع'].includes(type) || !items?.length) return
 
   const findItem = db.prepare('SELECT id, quantity, avg_cost FROM inventory_items WHERE name = ? AND unit = ?')
-  const createItem = db.prepare('INSERT INTO inventory_items (name, unit, specs, quantity, avg_cost) VALUES (?, ?, ?, 0, 0)')
+  const createItem = db.prepare('INSERT INTO inventory_items (name, unit, specs, quantity, avg_cost, category_id) VALUES (?, ?, ?, 0, 0, ?)')
   const updateItem = db.prepare('UPDATE inventory_items SET quantity = ?, avg_cost = ?, updated_at = datetime(\'now\') WHERE id = ?')
   const insertMovement = db.prepare(`
     INSERT INTO inventory_movements (inventory_item_id, transaction_id, type, quantity, unit_cost, date)
@@ -25,7 +25,7 @@ function trackInventory(
 
     let inv = findItem.get(item.name, item.unit) as { id: number; quantity: number; avg_cost: number } | undefined
     if (!inv) {
-      const r = createItem.run(item.name, item.unit, item.specs)
+      const r = createItem.run(item.name, item.unit, item.specs, item.category_id || null)
       inv = { id: Number(r.lastInsertRowid), quantity: 0, avg_cost: 0 }
     }
 
@@ -535,13 +535,82 @@ export function registerDatabaseHandlers(ipcMain: Electron.IpcMain, db: Database
     return ids.length
   })
 
+  ipcMain.handle(IPC.TRANSACTIONS_BULK_UPDATE, (_e, ids: number[], fields: Record<string, unknown>) => {
+    const allowed = ['date', 'type', 'payment_method', 'notes', 'expense_category', 'total_amount', 'paid_amount']
+    const updates = Object.entries(fields).filter(([k, v]) => allowed.includes(k) && v !== '' && v != null)
+    if (updates.length === 0) return 0
+    const affectsBalance = updates.some(([k]) => ['total_amount', 'paid_amount', 'type'].includes(k))
+    const hasTotalOrPaid = updates.some(([k]) => k === 'total_amount' || k === 'paid_amount')
+    const setClauses = updates.map(([k]) => `${k} = ?`).join(', ')
+    const values = updates.map(([, v]) => v)
+    const stmt = db.prepare(`UPDATE transactions SET ${setClauses}, updated_at = datetime('now') WHERE id = ?`)
+    const recalcStmt = db.prepare("UPDATE transactions SET remaining_amount = total_amount - paid_amount WHERE id = ?")
+
+    const getBalanceChange = (type: string, remainingAmount: number, totalAmount: number): number => {
+      if (type === 'بيع') return remainingAmount
+      if (type === 'شراء') return -remainingAmount
+      if (type === 'تحصيل') return -totalAmount
+      if (type === 'دفعة') return totalAmount
+      return 0
+    }
+
+    const run = db.transaction(() => {
+      for (const id of ids) {
+        if (affectsBalance) {
+          const old = db.prepare('SELECT type, person_id, remaining_amount, total_amount FROM transactions WHERE id = ?').get(id) as {
+            type: string; person_id: number | null; remaining_amount: number; total_amount: number
+          } | undefined
+          if (old?.person_id) {
+            const oldChange = getBalanceChange(old.type, old.remaining_amount, old.total_amount)
+            if (oldChange !== 0) {
+              db.prepare("UPDATE persons SET balance = balance - ?, updated_at = datetime('now') WHERE id = ?")
+                .run(oldChange, old.person_id)
+            }
+          }
+
+          stmt.run(...values, id)
+          if (hasTotalOrPaid) recalcStmt.run(id)
+
+          const updated = db.prepare('SELECT type, person_id, remaining_amount, total_amount FROM transactions WHERE id = ?').get(id) as {
+            type: string; person_id: number | null; remaining_amount: number; total_amount: number
+          }
+          if (updated.person_id) {
+            const newChange = getBalanceChange(updated.type, updated.remaining_amount, updated.total_amount)
+            if (newChange !== 0) {
+              db.prepare("UPDATE persons SET balance = balance + ?, updated_at = datetime('now') WHERE id = ?")
+                .run(newChange, updated.person_id)
+            }
+          }
+        } else {
+          stmt.run(...values, id)
+        }
+      }
+    })
+    run()
+    return ids.length
+  })
+
   // Persons
+  const BALANCE_SUBQUERY = `COALESCE((
+    SELECT SUM(
+      CASE
+        WHEN t.type = 'بيع' THEN t.remaining_amount
+        WHEN t.type = 'شراء' THEN -t.remaining_amount
+        WHEN t.type = 'تحصيل' THEN -t.total_amount
+        WHEN t.type = 'دفعة' THEN t.total_amount
+        ELSE 0
+      END
+    ) FROM transactions t WHERE t.person_id = p.id
+  ), 0)`
+
+  const PERSON_COLS = `p.id, p.name, p.type, p.phone, p.notes, p.created_at, p.updated_at, ${BALANCE_SUBQUERY} as balance`
+
   ipcMain.handle(IPC.PERSONS_LIST, () => {
-    return db.prepare('SELECT * FROM persons ORDER BY name').all()
+    return db.prepare(`SELECT ${PERSON_COLS} FROM persons p ORDER BY p.name`).all()
   })
 
   ipcMain.handle(IPC.PERSONS_GET, (_e, id: number) => {
-    return db.prepare('SELECT * FROM persons WHERE id = ?').get(id) ?? null
+    return db.prepare(`SELECT ${PERSON_COLS} FROM persons p WHERE p.id = ?`).get(id) ?? null
   })
 
   ipcMain.handle(IPC.PERSONS_CREATE, (_e, data: { name: string; type: string; phone: string | null; notes: string | null }) => {
@@ -588,8 +657,22 @@ export function registerDatabaseHandlers(ipcMain: Electron.IpcMain, db: Database
     return ids.length
   })
 
+  ipcMain.handle(IPC.PERSONS_BULK_UPDATE, (_e, ids: number[], fields: Record<string, unknown>) => {
+    const allowed = ['name', 'type', 'phone', 'notes']
+    const updates = Object.entries(fields).filter(([k, v]) => allowed.includes(k) && v !== '' && v != null)
+    if (updates.length === 0) return 0
+    const setClauses = updates.map(([k]) => `${k} = ?`).join(', ')
+    const values = updates.map(([, v]) => v)
+    const stmt = db.prepare(`UPDATE persons SET ${setClauses}, updated_at = datetime('now') WHERE id = ?`)
+    const run = db.transaction(() => {
+      for (const id of ids) stmt.run(...values, id)
+    })
+    run()
+    return ids.length
+  })
+
   ipcMain.handle(IPC.PERSONS_SEARCH, (_e, query: string) => {
-    return db.prepare('SELECT * FROM persons WHERE name LIKE ? ORDER BY name LIMIT 20')
+    return db.prepare(`SELECT ${PERSON_COLS} FROM persons p WHERE p.name LIKE ? ORDER BY p.name LIMIT 20`)
       .all(`%${query}%`)
   })
 
@@ -650,7 +733,7 @@ export function registerDatabaseHandlers(ipcMain: Electron.IpcMain, db: Database
     return result.lastInsertRowid
   })
 
-  ipcMain.handle(IPC.INVENTORY_UPDATE, (_e, id: number, data: { name?: string; unit?: string; specs?: string | null; category_id?: number | null; min_quantity?: number; avg_cost?: number; notes?: string | null }) => {
+  ipcMain.handle(IPC.INVENTORY_UPDATE, (_e, id: number, data: { name?: string; unit?: string; specs?: string | null; category_id?: number | null; min_quantity?: number; avg_cost?: number; notes?: string | null; quantity?: number }) => {
     const fields: string[] = []
     const params: unknown[] = []
     if (data.name !== undefined) { fields.push('name = ?'); params.push(data.name) }
@@ -660,6 +743,20 @@ export function registerDatabaseHandlers(ipcMain: Electron.IpcMain, db: Database
     if (data.min_quantity !== undefined) { fields.push('min_quantity = ?'); params.push(data.min_quantity) }
     if (data.avg_cost !== undefined) { fields.push('avg_cost = ?'); params.push(data.avg_cost) }
     if (data.notes !== undefined) { fields.push('notes = ?'); params.push(data.notes) }
+
+    if (data.quantity !== undefined) {
+      const current = db.prepare('SELECT quantity FROM inventory_items WHERE id = ?').get(id) as { quantity: number } | undefined
+      if (current && data.quantity !== current.quantity) {
+        const diff = data.quantity - current.quantity
+        const movementType = diff > 0 ? 'in' : 'out'
+        db.prepare(`
+          INSERT INTO inventory_movements (inventory_item_id, transaction_id, type, quantity, unit_cost, date, notes)
+          VALUES (?, NULL, ?, ?, 0, date('now'), 'تعديل يدوي للكمية')
+        `).run(id, movementType, Math.abs(diff))
+        fields.push('quantity = ?'); params.push(data.quantity)
+      }
+    }
+
     fields.push('updated_at = datetime(\'now\')')
     params.push(id)
     db.prepare(`UPDATE inventory_items SET ${fields.join(', ')} WHERE id = ?`).run(...params)
@@ -670,12 +767,26 @@ export function registerDatabaseHandlers(ipcMain: Electron.IpcMain, db: Database
     return db.prepare('SELECT * FROM inventory_categories ORDER BY name').all()
   })
 
-  ipcMain.handle(IPC.INVENTORY_ADD_STOCK, (_e, items: { name: string; quantity: number; unit: string; specs: string | null }[]) => {
+  ipcMain.handle(IPC.INVENTORY_CATEGORY_CREATE, (_e, name: string) => {
+    if (!name?.trim()) return null
+    const existing = db.prepare('SELECT id FROM inventory_categories WHERE name = ?').get(name.trim()) as { id: number } | undefined
+    if (existing) return existing.id
+    const result = db.prepare('INSERT INTO inventory_categories (name) VALUES (?)').run(name.trim())
+    return Number(result.lastInsertRowid)
+  })
+
+  ipcMain.handle(IPC.INVENTORY_CATEGORY_DELETE, (_e, id: number) => {
+    db.prepare('UPDATE inventory_items SET category_id = NULL WHERE category_id = ?').run(id)
+    db.prepare('DELETE FROM inventory_categories WHERE id = ?').run(id)
+    return true
+  })
+
+  ipcMain.handle(IPC.INVENTORY_ADD_STOCK, (_e, items: { name: string; quantity: number; unit: string; specs: string | null; category_id?: number }[]) => {
     if (!items?.length) return []
 
     const findItem = db.prepare('SELECT id, quantity, avg_cost FROM inventory_items WHERE name = ? AND unit = ?')
     const findItemLike = db.prepare('SELECT id, quantity, avg_cost, name, unit FROM inventory_items WHERE name LIKE ? AND unit = ?')
-    const createItem = db.prepare('INSERT INTO inventory_items (name, unit, specs, quantity, avg_cost) VALUES (?, ?, ?, 0, 0)')
+    const createItem = db.prepare('INSERT INTO inventory_items (name, unit, specs, quantity, avg_cost, category_id) VALUES (?, ?, ?, 0, 0, ?)')
     const updateItem = db.prepare("UPDATE inventory_items SET quantity = ?, updated_at = datetime('now') WHERE id = ?")
     const insertMovement = db.prepare(`
       INSERT INTO inventory_movements (inventory_item_id, transaction_id, type, quantity, unit_cost, date, notes)
@@ -694,7 +805,7 @@ export function registerDatabaseHandlers(ipcMain: Electron.IpcMain, db: Database
         }
 
         if (!inv) {
-          const result = createItem.run(item.name, item.unit, item.specs)
+          const result = createItem.run(item.name, item.unit, item.specs, item.category_id || null)
           inv = { id: Number(result.lastInsertRowid), quantity: 0, avg_cost: 0 }
         }
 
@@ -733,6 +844,20 @@ export function registerDatabaseHandlers(ipcMain: Electron.IpcMain, db: Database
     return ids.length
   })
 
+  ipcMain.handle(IPC.INVENTORY_BULK_UPDATE, (_e, ids: number[], fields: Record<string, unknown>) => {
+    const allowed = ['name', 'unit', 'specs', 'category_id', 'min_quantity', 'notes']
+    const updates = Object.entries(fields).filter(([k, v]) => allowed.includes(k) && v !== '' && v != null)
+    if (updates.length === 0) return 0
+    const setClauses = updates.map(([k]) => `${k} = ?`).join(', ')
+    const values = updates.map(([, v]) => v)
+    const stmt = db.prepare(`UPDATE inventory_items SET ${setClauses}, updated_at = datetime('now') WHERE id = ?`)
+    const run = db.transaction(() => {
+      for (const id of ids) stmt.run(...values, id)
+    })
+    run()
+    return ids.length
+  })
+
   // Reports
   ipcMain.handle(IPC.REPORTS_BALANCE_SHEET, () => {
     const cashFlow = db.prepare(`
@@ -742,8 +867,8 @@ export function registerDatabaseHandlers(ipcMain: Electron.IpcMain, db: Database
       FROM transactions
     `).get() as { cash: number }
 
-    const receivables = db.prepare("SELECT COALESCE(SUM(balance), 0) as total FROM persons WHERE balance > 0").get() as { total: number }
-    const payables = db.prepare("SELECT COALESCE(SUM(ABS(balance)), 0) as total FROM persons WHERE balance < 0").get() as { total: number }
+    const receivables = db.prepare(`SELECT COALESCE(SUM(bal), 0) as total FROM (SELECT ${BALANCE_SUBQUERY} as bal FROM persons p) WHERE bal > 0`).get() as { total: number }
+    const payables = db.prepare(`SELECT COALESCE(SUM(ABS(bal)), 0) as total FROM (SELECT ${BALANCE_SUBQUERY} as bal FROM persons p) WHERE bal < 0`).get() as { total: number }
     const inventoryValue = db.prepare("SELECT COALESCE(SUM(quantity * avg_cost), 0) as total FROM inventory_items").get() as { total: number }
 
     return {
@@ -817,14 +942,17 @@ export function registerDatabaseHandlers(ipcMain: Electron.IpcMain, db: Database
       SELECT
         p.id as person_id,
         p.name as person_name,
-        p.balance as outstanding,
         COALESCE(SUM(CASE WHEN t.type = 'بيع' THEN t.total_amount ELSE 0 END), 0) as total_revenue,
-        COALESCE(SUM(CASE WHEN t.type = 'تحصيل' THEN t.total_amount ELSE 0 END), 0) as total_collected
+        COALESCE(SUM(CASE WHEN t.type = 'بيع' THEN t.paid_amount ELSE 0 END), 0) +
+        COALESCE(SUM(CASE WHEN t.type = 'تحصيل' THEN t.total_amount ELSE 0 END), 0) as total_collected,
+        COALESCE(SUM(CASE WHEN t.type = 'بيع' THEN t.total_amount ELSE 0 END), 0) -
+        COALESCE(SUM(CASE WHEN t.type = 'بيع' THEN t.paid_amount ELSE 0 END), 0) -
+        COALESCE(SUM(CASE WHEN t.type = 'تحصيل' THEN t.total_amount ELSE 0 END), 0) as outstanding
       FROM persons p
-      LEFT JOIN transactions t ON t.person_id = p.id
-      WHERE p.balance != 0
+      JOIN transactions t ON t.person_id = p.id AND t.type IN ('بيع', 'تحصيل')
       GROUP BY p.id
-      ORDER BY ABS(p.balance) DESC
+      HAVING total_revenue > 0
+      ORDER BY outstanding DESC
     `).all()
   })
 
@@ -833,14 +961,17 @@ export function registerDatabaseHandlers(ipcMain: Electron.IpcMain, db: Database
       SELECT
         p.id as person_id,
         p.name as person_name,
-        ABS(p.balance) as outstanding,
         COALESCE(SUM(CASE WHEN t.type = 'شراء' THEN t.total_amount ELSE 0 END), 0) as total_purchases,
-        COALESCE(SUM(CASE WHEN t.type = 'دفعة' THEN t.total_amount ELSE 0 END), 0) as total_paid
+        COALESCE(SUM(CASE WHEN t.type = 'شراء' THEN t.paid_amount ELSE 0 END), 0) +
+        COALESCE(SUM(CASE WHEN t.type = 'دفعة' THEN t.total_amount ELSE 0 END), 0) as total_paid,
+        COALESCE(SUM(CASE WHEN t.type = 'شراء' THEN t.total_amount ELSE 0 END), 0) -
+        COALESCE(SUM(CASE WHEN t.type = 'شراء' THEN t.paid_amount ELSE 0 END), 0) -
+        COALESCE(SUM(CASE WHEN t.type = 'دفعة' THEN t.total_amount ELSE 0 END), 0) as outstanding
       FROM persons p
-      LEFT JOIN transactions t ON t.person_id = p.id
-      WHERE p.balance < 0
+      JOIN transactions t ON t.person_id = p.id AND t.type IN ('شراء', 'دفعة')
       GROUP BY p.id
-      ORDER BY ABS(p.balance) DESC
+      HAVING total_purchases > 0
+      ORDER BY outstanding DESC
     `).all()
   })
 
@@ -874,7 +1005,7 @@ export function registerDatabaseHandlers(ipcMain: Electron.IpcMain, db: Database
     `).get() as { sales: number; purchases: number; expenses: number; cash: number }
 
     const inventoryValue = db.prepare("SELECT COALESCE(SUM(quantity * avg_cost), 0) as total FROM inventory_items").get() as { total: number }
-    const receivables = db.prepare("SELECT COALESCE(SUM(balance), 0) as total FROM persons WHERE balance > 0").get() as { total: number }
+    const receivables = db.prepare(`SELECT COALESCE(SUM(bal), 0) as total FROM (SELECT ${BALANCE_SUBQUERY} as bal FROM persons p) WHERE bal > 0`).get() as { total: number }
 
     return {
       sales: row.sales,
